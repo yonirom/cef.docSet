@@ -1,0 +1,429 @@
+<HTML>
+<HEAD>
+<TITLE>
+cef_message_router.h
+</TITLE>
+</HEAD>
+<BODY>
+<PRE>
+<font color="green">// Copyright (c) 2014 Marshall A. Greenblatt. All rights reserved.</font>
+<font color="green">//</font>
+<font color="green">// Redistribution and use in source and binary forms, with or without</font>
+<font color="green">// modification, are permitted provided that the following conditions are</font>
+<font color="green">// met:</font>
+<font color="green">//</font>
+<font color="green">//    * Redistributions of source code must retain the above copyright</font>
+<font color="green">// notice, this list of conditions and the following disclaimer.</font>
+<font color="green">//    * Redistributions in binary form must reproduce the above</font>
+<font color="green">// copyright notice, this list of conditions and the following disclaimer</font>
+<font color="green">// in the documentation and/or other materials provided with the</font>
+<font color="green">// distribution.</font>
+<font color="green">//    * Neither the name of Google Inc. nor the name Chromium Embedded</font>
+<font color="green">// Framework nor the names of its contributors may be used to endorse</font>
+<font color="green">// or promote products derived from this software without specific prior</font>
+<font color="green">// written permission.</font>
+<font color="green">//</font>
+<font color="green">// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS</font>
+<font color="green">// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT</font>
+<font color="green">// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR</font>
+<font color="green">// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT</font>
+<font color="green">// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,</font>
+<font color="green">// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT</font>
+<font color="green">// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,</font>
+<font color="green">// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY</font>
+<font color="green">// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT</font>
+<font color="green">// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE</font>
+<font color="green">// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.</font>
+<font color="green">//</font>
+<font color="green">// ---------------------------------------------------------------------------</font>
+<font color="green">//</font>
+<font color="green">// The contents of this file are only available to applications that link</font>
+<font color="green">// against the libcef_dll_wrapper target.</font>
+<font color="green">//</font>
+
+<font color="blue">#ifndef</font> CEF_INCLUDE_WRAPPER_CEF_MESSAGE_ROUTER_H_
+<font color="blue">#define</font> CEF_INCLUDE_WRAPPER_CEF_MESSAGE_ROUTER_H_
+<font color="blue">#pragma</font> once
+
+<font color="blue">#include</font> <font color="maroon">"include/cef_base.h"</font>
+<font color="blue">#include</font> <font color="maroon">"include/cef_browser.h"</font>
+<font color="blue">#include</font> <font color="maroon">"include/cef_process_message.h"</font>
+<font color="blue">#include</font> <font color="maroon">"include/cef_v8.h"</font>
+
+<font color="green">// The below classes implement support for routing aynchronous messages between</font>
+<font color="green">// JavaScript running in the renderer process and C++ running in the browser</font>
+<font color="green">// process. An application interacts with the router by passing it data from</font>
+<font color="green">// standard CEF C++ callbacks (OnBeforeBrowse, OnProcessMessageRecieved,</font>
+<font color="green">// OnContextCreated, etc). The renderer-side router supports generic JavaScript</font>
+<font color="green">// callback registration and execution while the browser-side router supports</font>
+<font color="green">// application-specific logic via one or more application-provided Handler</font>
+<font color="green">// instances.</font>
+<font color="green">//</font>
+<font color="green">// The renderer-side router implementation exposes a query function and a cancel</font>
+<font color="green">// function via the JavaScript 'window' object:</font>
+<font color="green">//</font>
+<font color="green">//    // Create and send a new query.</font>
+<font color="green">//    var request_id = window.cefQuery({</font>
+<font color="green">//        request: 'my_request',</font>
+<font color="green">//        persistent: false,</font>
+<font color="green">//        onSuccess: function(response) {},</font>
+<font color="green">//        onFailure: function(error_code, error_message) {}</font>
+<font color="green">//    });</font>
+<font color="green">//</font>
+<font color="green">//    // Optionally cancel the query.</font>
+<font color="green">//    window.cefQueryCancel(request_id);</font>
+<font color="green">//</font>
+<font color="green">// When |window.cefQuery| is executed the request is sent asynchronously to one</font>
+<font color="green">// or more C++ Handler objects registered in the browser process. Each C++</font>
+<font color="green">// Handler can choose to either handle or ignore the query in the</font>
+<font color="green">// Handler::OnQuery callback. If a Handler chooses to handle the query then it</font>
+<font color="green">// should execute Callback::Success when a response is available or</font>
+<font color="green">// Callback::Failure if an error occurs. This will result in asynchronous</font>
+<font color="green">// execution of the associated JavaScript callback in the renderer process. Any</font>
+<font color="green">// queries unhandled by C++ code in the browser process will be automatically</font>
+<font color="green">// canceled and the associated JavaScript onFailure callback will be executed</font>
+<font color="green">// with an error code of -1.</font>
+<font color="green">//</font>
+<font color="green">// Queries can be either persistent or non-persistent. If the query is</font>
+<font color="green">// persistent than the callbacks will remain registered until one of the</font>
+<font color="green">// following conditions are met:</font>
+<font color="green">//</font>
+<font color="green">// A. The query is canceled in JavaScript using the |window.cefQueryCancel|</font>
+<font color="green">//    function.</font>
+<font color="green">// B. The query is canceled in C++ code using the Callback::Failure function.</font>
+<font color="green">// C. The context associated with the query is released due to browser</font>
+<font color="green">//    destruction, navigation or renderer process termination.</font>
+<font color="green">//</font>
+<font color="green">// If the query is non-persistent then the registration will be removed after</font>
+<font color="green">// the JavaScript callback is executed a single time. If a query is canceled for</font>
+<font color="green">// a reason other than Callback::Failure being executed then the associated</font>
+<font color="green">// Handler's OnQueryCanceled method will be called.</font>
+<font color="green">//</font>
+<font color="green">// Some possible usage patterns include:</font>
+<font color="green">//</font>
+<font color="green">// One-time Request. Use a non-persistent query to send a JavaScript request.</font>
+<font color="green">//    The Handler evaluates the request and returns the response. The query is</font>
+<font color="green">//    then discarded.</font>
+<font color="green">//</font>
+<font color="green">// Broadcast. Use a persistent query to register as a JavaScript broadcast</font>
+<font color="green">//    receiver. The Handler keeps track of all registered Callbacks and executes</font>
+<font color="green">//    them sequentially to deliver the broadcast message.</font>
+<font color="green">//</font>
+<font color="green">// Subscription. Use a persistent query to register as a JavaScript subscription</font>
+<font color="green">//    receiver. The Handler initiates the subscription feed on the first request</font>
+<font color="green">//    and delivers responses to all registered subscribers as they become</font>
+<font color="green">//    available. The Handler cancels the subscription feed when there are no</font>
+<font color="green">//    longer any registered JavaScript receivers.</font>
+<font color="green">//</font>
+<font color="green">// Message routing occurs on a per-browser and per-context basis. Consequently,</font>
+<font color="green">// additional application logic can be applied by restricting which browser or</font>
+<font color="green">// context instances are passed into the router. If you choose to use this</font>
+<font color="green">// approach do so cautiously. In order for the router to function correctly any</font>
+<font color="green">// browser or context instance passed into a single router callback must then</font>
+<font color="green">// be passed into all router callbacks.</font>
+<font color="green">//</font>
+<font color="green">// There is generally no need to have multiple renderer-side routers unless you</font>
+<font color="green">// wish to have multiple bindings with different JavaScript function names. It</font>
+<font color="green">// can be useful to have multiple browser-side routers with different client-</font>
+<font color="green">// provided Handler instances when implementing different behaviors on a per-</font>
+<font color="green">// browser basis.</font>
+<font color="green">//</font>
+<font color="green">// This implementation places no formatting restrictions on payload content.</font>
+<font color="green">// An application may choose to exchange anything from simple formatted</font>
+<font color="green">// strings to serialized XML or JSON data.</font>
+<font color="green">//</font>
+<font color="green">//</font>
+<font color="green">// EXAMPLE USAGE</font>
+<font color="green">//</font>
+<font color="green">// 1. Define the router configuration. You can optionally specify settings</font>
+<font color="green">//    like the JavaScript function names. The configuration must be the same in</font>
+<font color="green">//    both the browser and renderer processes. If using multiple routers in the</font>
+<font color="green">//    same application make sure to specify unique function names for each</font>
+<font color="green">//    router configuration.</font>
+<font color="green">//</font>
+<font color="green">//    // Example config object showing the default values.</font>
+<font color="green">//    CefMessageRouterConfig config;</font>
+<font color="green">//    config.js_query_function = "cefQuery";</font>
+<font color="green">//    config.js_cancel_function = "cefQueryCancel";</font>
+<font color="green">//</font>
+<font color="green">// 2. Create an instance of CefMessageRouterBrowserSide in the browser process.</font>
+<font color="green">//    You might choose to make it a member of your CefClient implementation,</font>
+<font color="green">//    for example.</font>
+<font color="green">//</font>
+<font color="green">//    browser_side_router_ = CefMessageRouterBrowserSide::Create(config);</font>
+<font color="green">//</font>
+<font color="green">// 3. Register one or more Handlers. The Handler instances must either outlive</font>
+<font color="green">//    the router or be removed from the router before they're deleted.</font>
+<font color="green">//</font>
+<font color="green">//    browser_side_router_-&#62;AddHandler(my_handler);</font>
+<font color="green">//</font>
+<font color="green">// 4. Call all required CefMessageRouterBrowserSide methods from other callbacks</font>
+<font color="green">//    in your CefClient implementation (OnBeforeClose, etc). See the</font>
+<font color="green">//    CefMessageRouterBrowserSide class documentation for the complete list of</font>
+<font color="green">//    methods.</font>
+<font color="green">//</font>
+<font color="green">// 5. Create an instance of CefMessageRouterRendererSide in the renderer process.</font>
+<font color="green">//    You might choose to make it a member of your CefApp implementation, for</font>
+<font color="green">//    example.</font>
+<font color="green">//</font>
+<font color="green">//    renderer_side_router_ = CefMessageRouterRendererSide::Create(config);</font>
+<font color="green">//</font>
+<font color="green">// 6. Call all required CefMessageRouterRendererSide methods from other</font>
+<font color="green">//    callbacks in your CefRenderProcessHandler implementation</font>
+<font color="green">//    (OnContextCreated, etc). See the CefMessageRouterRendererSide class</font>
+<font color="green">//    documentation for the complete list of methods.</font>
+<font color="green">//</font>
+<font color="green">// 7. Execute the query function from JavaScript code.</font>
+<font color="green">//</font>
+<font color="green">//    window.cefQuery({request: 'my_request',</font>
+<font color="green">//                     persistent: false,</font>
+<font color="green">//                     onSuccess: function(response) { print(response); },</font>
+<font color="green">//                     onFailure: function(error_code, error_message) {} });</font>
+<font color="green">//</font>
+<font color="green">// 8. Handle the query in your Handler::OnQuery implementation and execute the</font>
+<font color="green">//    appropriate callback either immediately or asynchronously.</font>
+<font color="green">//</font>
+<font color="green">//    void MyHandler::OnQuery(int64 query_id,</font>
+<font color="green">//                            CefRefPtr&#60;CefBrowser&#62; browser,</font>
+<font color="green">//                            CefRefPtr&#60;CefFrame&#62; frame,</font>
+<font color="green">//                            const CefString& request,</font>
+<font color="green">//                            bool persistent,</font>
+<font color="green">//                            CefRefPtr&#60;Callback&#62; callback) {</font>
+<font color="green">//      if (request == "my_request") {</font>
+<font color="green">//        callback-&#62;Continue("my_response");</font>
+<font color="green">//        return true;</font>
+<font color="green">//      }</font>
+<font color="green">//      return false;  // Not handled.</font>
+<font color="green">//    }</font>
+<font color="green">//</font>
+<font color="green">// 9. Notice that the onSuccess callback is executed in JavaScript.</font>
+
+<font color="green">///</font>
+<font color="green">// Used to configure the query router. The same values must be passed to both</font>
+<font color="green">// CefMessageRouterBrowserSide and CefMessageRouterRendererSide. If using multiple</font>
+<font color="green">// router pairs make sure to choose values that do not conflict.</font>
+<font color="green">///</font>
+<font color="blue">struct</font> CefMessageRouterConfig <font color="black">{</font>
+  CefMessageRouterConfig<font color="black">(</font><font color="black">)</font>;
+
+  <font color="green">// Name of the JavaScript function that will be added to the 'window' object</font>
+  <font color="green">// for sending a query. The default value is "cefQuery".</font>
+  CefString js_query_function;
+
+  <font color="green">// Name of the JavaScript function that will be added to the 'window' object</font>
+  <font color="green">// for canceling a pending query. The default value is "cefQueryCancel".</font>
+  CefString js_cancel_function;
+<font color="black">}</font>;
+
+<font color="green">///</font>
+<font color="green">// Implements the browser side of query routing. The methods of this class may</font>
+<font color="green">// be called on any browser process thread unless otherwise indicated.</font>
+<font color="green">///</font>
+<font color="blue">class</font> CefMessageRouterBrowserSide <font color="black">:</font> <font color="blue">public</font> CefBase <font color="black">{</font>
+ <font color="blue">public</font><font color="black">:</font>
+  <font color="green">///</font>
+  <font color="green">// Callback associated with a single pending asynchronous query. Execute the</font>
+  <font color="green">// Success or Failure method to send an asynchronous response to the</font>
+  <font color="green">// associated JavaScript handler. It is a runtime error to destroy a Callback</font>
+  <font color="green">// object associated with an uncanceled query without first executing one of</font>
+  <font color="green">// the callback methods. The methods of this class may be called on any</font>
+  <font color="green">// browser process thread.</font>
+  <font color="green">///</font>
+  <font color="blue">class</font> Callback <font color="black">:</font> <font color="blue">public</font> CefBase <font color="black">{</font>
+   <font color="blue">public</font><font color="black">:</font>
+    <font color="green">///</font>
+    <font color="green">// Notify the associated JavaScript onSuccess callback that the query has</font>
+    <font color="green">// completed successfully with the specified |response|.</font>
+    <font color="green">///</font>
+    virtual <font color="blue">void</font> Success<font color="black">(</font><font color="blue">const</font> CefString<font color="black">&</font> response<font color="black">)</font> <font color="black">=</font><font color="maroon">0</font>;
+
+    <font color="green">///</font>
+    <font color="green">// Notify the associated JavaScript onFailure callback that the query has</font>
+    <font color="green">// failed with the specified |error_code| and |error_message|.</font>
+    <font color="green">///</font>
+    virtual <font color="blue">void</font> Failure<font color="black">(</font><font color="blue">int</font> error_code, <font color="blue">const</font> CefString<font color="black">&</font> error_message<font color="black">)</font> <font color="black">=</font><font color="maroon">0</font>;
+  <font color="black">}</font>;
+
+  <font color="green">///</font>
+  <font color="green">// Implement this interface to handle queries. All methods will be executed on</font>
+  <font color="green">// the browser process UI thread.</font>
+  <font color="green">///</font>
+  <font color="blue">class</font> Handler <font color="black">{</font>
+   <font color="blue">public</font><font color="black">:</font>
+    <font color="blue">typedef</font> CefMessageRouterBrowserSide<font color="black">:</font><font color="black">:</font>Callback Callback;
+
+    <font color="green">///</font>
+    <font color="green">// Executed when a new query is received. |query_id| uniquely identifies the</font>
+    <font color="green">// query for the life span of the router. Return true to handle the query</font>
+    <font color="green">// or false to propagate the query to other registered handlers, if any. If</font>
+    <font color="green">// no handlers return true from this method then the query will be</font>
+    <font color="green">// automatically canceled with an error code of -1 delivered to the</font>
+    <font color="green">// JavaScript onFailure callback. If this method returns true then a</font>
+    <font color="green">// Callback method must be executed either in this method or asynchronously</font>
+    <font color="green">// to complete the query.</font>
+    <font color="green">///</font>
+    virtual <font color="blue">bool</font> OnQuery<font color="black">(</font>CefRefPtr<font color="black">&#60;</font>CefBrowser<font color="black">&#62;</font> browser,
+                         CefRefPtr<font color="black">&#60;</font>CefFrame<font color="black">&#62;</font> frame,
+                         int64 query_id,
+                         <font color="blue">const</font> CefString<font color="black">&</font> request,
+                         <font color="blue">bool</font> persistent,
+                         CefRefPtr<font color="black">&#60;</font>Callback<font color="black">&#62;</font> callback<font color="black">)</font> <font color="black">{</font>
+      <font color="blue">return</font> <font color="blue">false</font>;
+    <font color="black">}</font>
+
+    <font color="green">///</font>
+    <font color="green">// Executed when a query has been canceled either explicitly using the</font>
+    <font color="green">// JavaScript cancel function or implicitly due to browser destruction,</font>
+    <font color="green">// navigation or renderer process termination. It will only be called for</font>
+    <font color="green">// the single handler that returned true from OnQuery for the same</font>
+    <font color="green">// |query_id|. No references to the associated Callback object should be</font>
+    <font color="green">// kept after this method is called, nor should any Callback methods be</font>
+    <font color="green">// executed.</font>
+    <font color="green">///</font>
+    virtual <font color="blue">void</font> OnQueryCanceled<font color="black">(</font>CefRefPtr<font color="black">&#60;</font>CefBrowser<font color="black">&#62;</font> browser,
+                                 CefRefPtr<font color="black">&#60;</font>CefFrame<font color="black">&#62;</font> frame,
+                                 int64 query_id<font color="black">)</font> <font color="black">{</font><font color="black">}</font>
+
+    virtual ~Handler<font color="black">(</font><font color="black">)</font> <font color="black">{</font><font color="black">}</font>
+  <font color="black">}</font>;
+
+  <font color="green">///</font>
+  <font color="green">// Create a new router with the specified configuration.</font>
+  <font color="green">///</font>
+  <font color="blue">static</font> CefRefPtr<font color="black">&#60;</font>CefMessageRouterBrowserSide<font color="black">&#62;</font> Create<font color="black">(</font>
+      <font color="blue">const</font> CefMessageRouterConfig<font color="black">&</font> config<font color="black">)</font>;
+
+  <font color="green">///</font>
+  <font color="green">// Add a new query handler. If |first| is true it will be added as the first</font>
+  <font color="green">// handler, otherwise it will be added as the last handler. Returns true if</font>
+  <font color="green">// the handler is added successfully or false if the handler has already been</font>
+  <font color="green">// added. Must be called on the browser process UI thread. The Handler object</font>
+  <font color="green">// must either outlive the router or be removed before deletion.</font>
+  <font color="green">///</font>
+  virtual <font color="blue">bool</font> AddHandler<font color="black">(</font>Handler<font color="black">*</font> handler, <font color="blue">bool</font> first<font color="black">)</font> <font color="black">=</font><font color="maroon">0</font>;
+
+  <font color="green">///</font>
+  <font color="green">// Remove an existing query handler. Any pending queries associated with the</font>
+  <font color="green">// handler will be canceled. Handler::OnQueryCanceled will be called and the</font>
+  <font color="green">// associated JavaScript onFailure callback will be executed with an error</font>
+  <font color="green">// code of -1. Returns true if the handler is removed successfully or false</font>
+  <font color="green">// if the handler is not found. Must be called on the browser process UI</font>
+  <font color="green">// thread.</font>
+  <font color="green">///</font>
+  virtual <font color="blue">bool</font> RemoveHandler<font color="black">(</font>Handler<font color="black">*</font> handler<font color="black">)</font> <font color="black">=</font><font color="maroon">0</font>;
+
+  <font color="green">///</font>
+  <font color="green">// Cancel all pending queries associated with either |browser| or |handler|.</font>
+  <font color="green">// If both |browser| and |handler| are NULL all pending queries will be</font>
+  <font color="green">// canceled. Handler::OnQueryCanceled will be called and the associated</font>
+  <font color="green">// JavaScript onFailure callback will be executed in all cases with an error</font>
+  <font color="green">// code of -1.</font>
+  <font color="green">///</font>
+  virtual <font color="blue">void</font> CancelPending<font color="black">(</font>CefRefPtr<font color="black">&#60;</font>CefBrowser<font color="black">&#62;</font> browser,
+                             Handler<font color="black">*</font> handler<font color="black">)</font> <font color="black">=</font><font color="maroon">0</font>;
+
+  <font color="green">///</font>
+  <font color="green">// Returns the number of queries currently pending for the specified |browser|</font>
+  <font color="green">// and/or |handler|. Either or both values may be empty. Must be called on the</font>
+  <font color="green">// browser process UI thread.</font>
+  <font color="green">///</font>
+  virtual <font color="blue">int</font> GetPendingCount<font color="black">(</font>CefRefPtr<font color="black">&#60;</font>CefBrowser<font color="black">&#62;</font> browser,
+                              Handler<font color="black">*</font> handler<font color="black">)</font> <font color="black">=</font><font color="maroon">0</font>;
+
+
+  <font color="green">// The below methods should be called from other CEF handlers. They must be</font>
+  <font color="green">// called exactly as documented for the router to function correctly.</font>
+
+  <font color="green">///</font>
+  <font color="green">// Call from CefLifeSpanHandler::OnBeforeClose. Any pending queries associated</font>
+  <font color="green">// with |browser| will be canceled and Handler::OnQueryCanceled will be called.</font>
+  <font color="green">// No JavaScript callbacks will be executed since this indicates destruction</font>
+  <font color="green">// of the browser.</font>
+  <font color="green">///</font>
+  virtual <font color="blue">void</font> OnBeforeClose<font color="black">(</font>CefRefPtr<font color="black">&#60;</font>CefBrowser<font color="black">&#62;</font> browser<font color="black">)</font> <font color="black">=</font><font color="maroon">0</font>;
+
+  <font color="green">///</font>
+  <font color="green">// Call from CefRequestHandler::OnRenderProcessTerminated. Any pending queries</font>
+  <font color="green">// associated with |browser| will be canceled and Handler::OnQueryCanceled</font>
+  <font color="green">// will be called. No JavaScript callbacks will be executed since this</font>
+  <font color="green">// indicates destruction of the context.</font>
+  <font color="green">///</font>
+  virtual <font color="blue">void</font> OnRenderProcessTerminated<font color="black">(</font>CefRefPtr<font color="black">&#60;</font>CefBrowser<font color="black">&#62;</font> browser<font color="black">)</font> <font color="black">=</font><font color="maroon">0</font>;
+
+  <font color="green">///</font>
+  <font color="green">// Call from CefRequestHandler::OnBeforeBrowse only if the navigation is</font>
+  <font color="green">// allowed to proceed. If |frame| is the main frame then any pending queries</font>
+  <font color="green">// associated with |browser| will be canceled and Handler::OnQueryCanceled</font>
+  <font color="green">// will be called. No JavaScript callbacks will be executed since this</font>
+  <font color="green">// indicates destruction of the context.</font>
+  <font color="green">///</font>
+  virtual <font color="blue">void</font> OnBeforeBrowse<font color="black">(</font>CefRefPtr<font color="black">&#60;</font>CefBrowser<font color="black">&#62;</font> browser,
+                              CefRefPtr<font color="black">&#60;</font>CefFrame<font color="black">&#62;</font> frame<font color="black">)</font> <font color="black">=</font><font color="maroon">0</font>;
+
+  <font color="green">///</font>
+  <font color="green">// Call from CefClient::OnProcessMessageReceived. Returns true if the message</font>
+  <font color="green">// is handled by this router or false otherwise.</font>
+  <font color="green">///</font>
+  virtual <font color="blue">bool</font> OnProcessMessageReceived<font color="black">(</font>
+      CefRefPtr<font color="black">&#60;</font>CefBrowser<font color="black">&#62;</font> browser,
+      CefProcessId source_process,
+      CefRefPtr<font color="black">&#60;</font>CefProcessMessage<font color="black">&#62;</font> message<font color="black">)</font> <font color="black">=</font><font color="maroon">0</font>;
+<font color="black">}</font>;
+
+<font color="green">///</font>
+<font color="green">// Implements the renderer side of query routing. The methods of this class must</font>
+<font color="green">// be called on the render process main thread.</font>
+<font color="green">///</font>
+<font color="blue">class</font> CefMessageRouterRendererSide <font color="black">:</font> <font color="blue">public</font> CefBase <font color="black">{</font>
+ <font color="blue">public</font><font color="black">:</font>
+  virtual ~CefMessageRouterRendererSide<font color="black">(</font><font color="black">)</font> <font color="black">{</font><font color="black">}</font>
+
+  <font color="green">///</font>
+  <font color="green">// Create a new router with the specified configuration.</font>
+  <font color="green">///</font>
+  <font color="blue">static</font> CefRefPtr<font color="black">&#60;</font>CefMessageRouterRendererSide<font color="black">&#62;</font> Create<font color="black">(</font>
+      <font color="blue">const</font> CefMessageRouterConfig<font color="black">&</font> config<font color="black">)</font>;
+
+  <font color="green">///</font>
+  <font color="green">// Returns the number of queries currently pending for the specified |browser|</font>
+  <font color="green">// and/or |context|. Either or both values may be empty.</font>
+  <font color="green">///</font>
+  virtual <font color="blue">int</font> GetPendingCount<font color="black">(</font>CefRefPtr<font color="black">&#60;</font>CefBrowser<font color="black">&#62;</font> browser,
+                              CefRefPtr<font color="black">&#60;</font>CefV8Context<font color="black">&#62;</font> context<font color="black">)</font> <font color="black">=</font><font color="maroon">0</font>;
+
+
+  <font color="green">// The below methods should be called from other CEF handlers. They must be</font>
+  <font color="green">// called exactly as documented for the router to function correctly.</font>
+
+  <font color="green">///</font>
+  <font color="green">// Call from CefRenderProcessHandler::OnContextCreated. Registers the</font>
+  <font color="green">// JavaScripts functions with the new context.</font>
+  <font color="green">///</font>
+  virtual <font color="blue">void</font> OnContextCreated<font color="black">(</font>CefRefPtr<font color="black">&#60;</font>CefBrowser<font color="black">&#62;</font> browser,
+                                CefRefPtr<font color="black">&#60;</font>CefFrame<font color="black">&#62;</font> frame,
+                                CefRefPtr<font color="black">&#60;</font>CefV8Context<font color="black">&#62;</font> context<font color="black">)</font> <font color="black">=</font><font color="maroon">0</font>;
+
+  <font color="green">///</font>
+  <font color="green">// Call from CefRenderProcessHandler::OnContextReleased. Any pending queries</font>
+  <font color="green">// associated with the released context will be canceled and</font>
+  <font color="green">// Handler::OnQueryCanceled will be called in the browser process.</font>
+  <font color="green">///</font>
+  virtual <font color="blue">void</font> OnContextReleased<font color="black">(</font>CefRefPtr<font color="black">&#60;</font>CefBrowser<font color="black">&#62;</font> browser,
+                                 CefRefPtr<font color="black">&#60;</font>CefFrame<font color="black">&#62;</font> frame,
+                                 CefRefPtr<font color="black">&#60;</font>CefV8Context<font color="black">&#62;</font> context<font color="black">)</font> <font color="black">=</font><font color="maroon">0</font>;
+  
+  <font color="green">///</font>
+  <font color="green">// Call from CefRenderProcessHandler::OnProcessMessageReceived. Returns true</font>
+  <font color="green">// if the message is handled by this router or false otherwise.</font>
+  <font color="green">///</font>
+  virtual <font color="blue">bool</font> OnProcessMessageReceived<font color="black">(</font>
+      CefRefPtr<font color="black">&#60;</font>CefBrowser<font color="black">&#62;</font> browser,
+      CefProcessId source_process,
+      CefRefPtr<font color="black">&#60;</font>CefProcessMessage<font color="black">&#62;</font> message<font color="black">)</font> <font color="black">=</font><font color="maroon">0</font>;
+<font color="black">}</font>;
+
+<font color="blue">#endif</font>  <font color="green">// CEF_INCLUDE_WRAPPER_CEF_MESSAGE_ROUTER_H_</font>
+
+</PRE>
+</BODY>
+</HTML>

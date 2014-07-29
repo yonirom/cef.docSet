@@ -1,0 +1,106 @@
+<HTML>
+<HEAD>
+<TITLE>
+cef_request_context.h
+</TITLE>
+</HEAD>
+<BODY>
+<PRE>
+<font color="green">// Copyright (c) 2013 Marshall A. Greenblatt. All rights reserved.</font>
+<font color="green">//</font>
+<font color="green">// Redistribution and use in source and binary forms, with or without</font>
+<font color="green">// modification, are permitted provided that the following conditions are</font>
+<font color="green">// met:</font>
+<font color="green">//</font>
+<font color="green">//    * Redistributions of source code must retain the above copyright</font>
+<font color="green">// notice, this list of conditions and the following disclaimer.</font>
+<font color="green">//    * Redistributions in binary form must reproduce the above</font>
+<font color="green">// copyright notice, this list of conditions and the following disclaimer</font>
+<font color="green">// in the documentation and/or other materials provided with the</font>
+<font color="green">// distribution.</font>
+<font color="green">//    * Neither the name of Google Inc. nor the name Chromium Embedded</font>
+<font color="green">// Framework nor the names of its contributors may be used to endorse</font>
+<font color="green">// or promote products derived from this software without specific prior</font>
+<font color="green">// written permission.</font>
+<font color="green">//</font>
+<font color="green">// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS</font>
+<font color="green">// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT</font>
+<font color="green">// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR</font>
+<font color="green">// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT</font>
+<font color="green">// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,</font>
+<font color="green">// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT</font>
+<font color="green">// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,</font>
+<font color="green">// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY</font>
+<font color="green">// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT</font>
+<font color="green">// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE</font>
+<font color="green">// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.</font>
+<font color="green">//</font>
+<font color="green">// ---------------------------------------------------------------------------</font>
+<font color="green">//</font>
+<font color="green">// The contents of this file must follow a specific format in order to</font>
+<font color="green">// support the CEF translator tool. See the translator.README.txt file in the</font>
+<font color="green">// tools directory for more information.</font>
+<font color="green">//</font>
+
+<font color="blue">#ifndef</font> CEF_INCLUDE_CEF_REQUEST_CONTEXT_H_
+<font color="blue">#define</font> CEF_INCLUDE_CEF_REQUEST_CONTEXT_H_
+<font color="blue">#pragma</font> once
+
+<font color="blue">#include</font> <font color="maroon">"include/cef_request_context_handler.h"</font>
+
+<font color="green">///</font>
+<font color="green">// A request context provides request handling for a set of related browser</font>
+<font color="green">// objects. A request context is specified when creating a new browser object</font>
+<font color="green">// via the CefBrowserHost static factory methods. Browser objects with different</font>
+<font color="green">// request contexts will never be hosted in the same render process. Browser</font>
+<font color="green">// objects with the same request context may or may not be hosted in the same</font>
+<font color="green">// render process depending on the process model. Browser objects created</font>
+<font color="green">// indirectly via the JavaScript window.open function or targeted links will</font>
+<font color="green">// share the same render process and the same request context as the source</font>
+<font color="green">// browser. When running in single-process mode there is only a single render</font>
+<font color="green">// process (the main process) and so all browsers created in single-process mode</font>
+<font color="green">// will share the same request context. This will be the first request context</font>
+<font color="green">// passed into a CefBrowserHost static factory method and all other request</font>
+<font color="green">// context objects will be ignored.</font>
+<font color="green">///</font>
+<font color="green">/*--cef(source=library,no_debugct_check)--*/</font>
+<font color="blue">class</font> CefRequestContext <font color="black">:</font> <font color="blue">public</font> virtual CefBase <font color="black">{</font>
+ <font color="blue">public</font><font color="black">:</font>
+  <font color="green">///</font>
+  <font color="green">// Returns the global context object.</font>
+  <font color="green">///</font>
+  <font color="green">/*--cef()--*/</font>
+  <font color="blue">static</font> CefRefPtr<font color="black">&#60;</font>CefRequestContext<font color="black">&#62;</font> GetGlobalContext<font color="black">(</font><font color="black">)</font>;
+
+  <font color="green">///</font>
+  <font color="green">// Creates a new context object with the specified handler.</font>
+  <font color="green">///</font>
+  <font color="green">/*--cef(optional_param=handler)--*/</font>
+  <font color="blue">static</font> CefRefPtr<font color="black">&#60;</font>CefRequestContext<font color="black">&#62;</font> CreateContext<font color="black">(</font>
+      CefRefPtr<font color="black">&#60;</font>CefRequestContextHandler<font color="black">&#62;</font> handler<font color="black">)</font>;
+
+  <font color="green">///</font>
+  <font color="green">// Returns true if this object is pointing to the same context as |that|</font>
+  <font color="green">// object.</font>
+  <font color="green">///</font>
+  <font color="green">/*--cef()--*/</font>
+  virtual <font color="blue">bool</font> IsSame<font color="black">(</font>CefRefPtr<font color="black">&#60;</font>CefRequestContext<font color="black">&#62;</font> other<font color="black">)</font> <font color="black">=</font><font color="maroon">0</font>;
+
+  <font color="green">///</font>
+  <font color="green">// Returns true if this object is the global context.</font>
+  <font color="green">///</font>
+  <font color="green">/*--cef()--*/</font>
+  virtual <font color="blue">bool</font> IsGlobal<font color="black">(</font><font color="black">)</font> <font color="black">=</font><font color="maroon">0</font>;
+
+  <font color="green">///</font>
+  <font color="green">// Returns the handler for this context if any.</font>
+  <font color="green">///</font>
+  <font color="green">/*--cef()--*/</font>
+  virtual CefRefPtr<font color="black">&#60;</font>CefRequestContextHandler<font color="black">&#62;</font> GetHandler<font color="black">(</font><font color="black">)</font> <font color="black">=</font><font color="maroon">0</font>;
+<font color="black">}</font>;
+
+<font color="blue">#endif</font>  <font color="green">// CEF_INCLUDE_CEF_REQUEST_CONTEXT_H_</font>
+
+</PRE>
+</BODY>
+</HTML>
