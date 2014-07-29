@@ -1,6 +1,12 @@
 CEF Docset for Dash
 ===================
 
+Usage Instructions:
+-------------------
+
+* Clone repository
+* Add local directory to dash docsets via Dash settings
+
 Creation Instructions:
 ----------------------
 
